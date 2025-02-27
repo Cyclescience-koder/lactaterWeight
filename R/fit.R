@@ -35,21 +35,18 @@ prepare_fit <- function(
   fit <- match.arg(arg = fit)
   sport <- match.arg(arg = sport)
 
-  ## here we take the baseline intensity
-  ## and create it as a previous step of step 1
-  ## this is mainly important to correctly plot the baseline value as the previous step of step 1
+  ## create the "baseline" shift for plotting
   to_subtract <- .data$intensity[3] - .data$intensity[2]
   .data[.data$intensity == 0, ]$intensity <- .data$intensity[2] - to_subtract
 
-
   switch (
     sport,
-    "cycling" = interpolation_factor <- 0.1,
-    "running" = interpolation_factor <- 0.1,
-    "swimming" = interpolation_factor <- 0.01
+    "cycling"   = interpolation_factor <- 0.1,
+    "running"   = interpolation_factor <- 0.1,
+    "swimming"  = interpolation_factor <- 0.01
   )
 
-  if(include_baseline) {
+  if (include_baseline) {
     data_for_modeling <- .data
   } else {
     data_for_modeling <- .data[-1, ]
@@ -58,43 +55,74 @@ prepare_fit <- function(
   data_pre_processed <- .data %>%
     tidyr::nest(data = dplyr::everything()) %>%
     dplyr::rowwise() %>%
-    dplyr::mutate(data_interpolated = interpolate_intensity(.data = data_for_modeling, interpolation_factor = interpolation_factor) %>% list()) %>%
+    dplyr::mutate(
+      data_interpolated = interpolate_intensity(
+        .data = data_for_modeling,
+        interpolation_factor = interpolation_factor
+      ) %>% list()
+    ) %>%
     dplyr::ungroup()
 
-  new_data_model <- data.frame(intensity = seq(min(data_for_modeling$intensity), max(data_for_modeling$intensity), interpolation_factor))
+  new_data_model <- data.frame(
+    intensity = seq(
+      min(data_for_modeling$intensity),
+      max(data_for_modeling$intensity),
+      interpolation_factor
+    )
+  )
 
-  if(fit == "3rd degree polynomial") {
-
+  if (fit == "3rd degree polynomial") {
     out <- data_pre_processed %>%
       dplyr::rowwise() %>%
       dplyr::mutate(
-        model = lm(lactate ~ poly(intensity, degree = 3, raw = TRUE), data = data_for_modeling) %>% list(),
-        data_augmented = broom::augment(model, newdata = new_data_model, type.predict = "response") %>% list()
+        model = lm(
+          lactate ~ poly(intensity, degree = 3, raw = TRUE),
+          data = data_for_modeling,
+          # TILFØJET:
+          # Hvis "weight_vec" ikke findes, vil R brokke sig.
+          # Du kan evt. if-else'e her, men her er den simple løsning:
+          weights = data_for_modeling$weight_vec
+        ) %>% list(),
+        data_augmented = broom::augment(model,
+          newdata = new_data_model,
+          type.predict = "response"
+        ) %>% list()
       ) %>%
       dplyr::ungroup()
 
-  } else if(fit == "4th degree polynomial") {
-
+  } else if (fit == "4th degree polynomial") {
     out <- data_pre_processed %>%
       dplyr::rowwise() %>%
       dplyr::mutate(
-        model = lm(lactate ~ poly(intensity, degree = 4, raw = TRUE), data = data_for_modeling) %>% list(),
-        data_augmented = broom::augment(model, newdata = new_data_model, type.predict = "response") %>% list()
+        model = lm(
+          lactate ~ poly(intensity, degree = 4, raw = TRUE),
+          data = data_for_modeling,
+          weights = data_for_modeling$weight_vec
+        ) %>% list(),
+        data_augmented = broom::augment(model,
+          newdata = new_data_model,
+          type.predict = "response"
+        ) %>% list()
       ) %>%
       dplyr::ungroup()
 
-  } else if(fit == "B-spline") {
-
+  } else if (fit == "B-spline") {
     out <- data_pre_processed %>%
       dplyr::rowwise() %>%
       dplyr::mutate(
-        model = glm(lactate ~ splines::ns(intensity, 4), data = data_for_modeling) %>% list(),
-        data_augmented = broom::augment(model, newdata = new_data_model, type.predict = "response") %>% list()
+        model = glm(
+          lactate ~ splines::ns(intensity, 4),
+          data = data_for_modeling,
+          weights = data_for_modeling$weight_vec
+        ) %>% list(),
+        data_augmented = broom::augment(model,
+          newdata = new_data_model,
+          type.predict = "response"
+        ) %>% list()
       ) %>%
       dplyr::ungroup()
 
-  } else if(fit == "Exponential") {
-
+  } else if (fit == "Exponential") {
     out <- data_pre_processed %>%
       dplyr::rowwise() %>%
       dplyr::mutate(
@@ -102,12 +130,15 @@ prepare_fit <- function(
           formula = lactate ~ a + (b * exp(c * intensity)),
           data = data_for_modeling,
           start = list(a = 0, b = 1, c = 0),
-          control = list(maxiter = 1000)
+          control = list(maxiter = 1000),
+          weights = data_for_modeling$weight_vec
         ) %>% list(),
-        data_augmented = broom::augment(model, newdata = new_data_model, type.predict = "response") %>% list()
+        data_augmented = broom::augment(model,
+          newdata = new_data_model,
+          type.predict = "response"
+        ) %>% list()
       ) %>%
       dplyr::ungroup()
-
   }
 
   out <- out %>%
@@ -115,6 +146,7 @@ prepare_fit <- function(
 
   out
 }
+
 
 #' Prepare modified Dmax fits
 #'
@@ -154,43 +186,56 @@ prepare_fit_dmax_mods <- function(
   fit <- match.arg(arg = fit)
   sport <- match.arg(arg = sport)
 
-  ## here we take the baseline intensity
-  ## and create it as a previous step of step 1
-  ## this is mainly important to correctly plot the baseline value as the previous step of step 1
   to_subtract <- .data$intensity[3] - .data$intensity[2]
   .data[.data$intensity == 0, ]$intensity <- .data$intensity[2] - to_subtract
 
-
   switch (
     sport,
-    "cycling" = interpolation_factor <- 0.1,
-    "running" = interpolation_factor <- 0.1,
-    "swimming" = interpolation_factor <- 0.01
+    "cycling"   = interpolation_factor <- 0.1,
+    "running"   = interpolation_factor <- 0.1,
+    "swimming"  = interpolation_factor <- 0.01
   )
 
+  # For Dmax, we skip baseline row
   data_for_modeling <- .data[-1, ]
 
   data_pre_processed <- .data %>%
     tidyr::nest(data = dplyr::everything()) %>%
     dplyr::rowwise() %>%
-    dplyr::mutate(data_interpolated = interpolate_intensity(.data = data_for_modeling, interpolation_factor = interpolation_factor) %>% list()) %>%
+    dplyr::mutate(
+      data_interpolated = interpolate_intensity(
+        .data = data_for_modeling,
+        interpolation_factor = interpolation_factor
+      ) %>% list()
+    ) %>%
     dplyr::ungroup()
 
-  new_data_model <- dplyr::tibble(intensity = seq(min(data_for_modeling$intensity), max(data_for_modeling$intensity), interpolation_factor)) %>%
+  new_data_model <- dplyr::tibble(
+    intensity = seq(
+      min(data_for_modeling$intensity),
+      max(data_for_modeling$intensity),
+      interpolation_factor
+    )
+  ) %>%
     dplyr::filter(intensity >= intensity_to_start)
 
-  if(fit == "3rd degree polynomial") {
-
+  if (fit == "3rd degree polynomial") {
     out <- data_pre_processed %>%
       dplyr::rowwise() %>%
       dplyr::mutate(
-        model = lm(lactate ~ poly(intensity, degree = 3, raw = TRUE), data = data_for_modeling) %>% list(),
-        data_augmented = broom::augment(model, newdata = new_data_model, type.predict = "response") %>% list()
+        model = lm(
+          lactate ~ poly(intensity, degree = 3, raw = TRUE),
+          data = data_for_modeling,
+          weights = data_for_modeling$weight_vec
+        ) %>% list(),
+        data_augmented = broom::augment(model,
+          newdata = new_data_model,
+          type.predict = "response"
+        ) %>% list()
       ) %>%
       dplyr::ungroup()
 
-  } else if(fit == "Exponential") {
-
+  } else if (fit == "Exponential") {
     out <- data_pre_processed %>%
       dplyr::rowwise() %>%
       dplyr::mutate(
@@ -198,12 +243,15 @@ prepare_fit_dmax_mods <- function(
           formula = lactate ~ a + (b * exp(c * intensity)),
           data = data_for_modeling,
           start = list(a = 0, b = 1, c = 0),
-          control = list(maxiter = 1000)
+          control = list(maxiter = 1000),
+          weights = data_for_modeling$weight_vec
         ) %>% list(),
-        data_augmented = broom::augment(model, newdata = new_data_model, type.predict = "response") %>% list()
+        data_augmented = broom::augment(model,
+          newdata = new_data_model,
+          type.predict = "response"
+        ) %>% list()
       ) %>%
       dplyr::ungroup()
-
   }
 
   out <- out %>%
@@ -211,4 +259,3 @@ prepare_fit_dmax_mods <- function(
 
   out
 }
-
