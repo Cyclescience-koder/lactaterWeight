@@ -21,7 +21,12 @@ method_ltp <- function(data_prepared, fit, sport, plot) {
 
   data_interpolated <- data_prepared$data_interpolated[[1]]
 
-  linear_fit <- lm(lactate ~ intensity, data = data_interpolated)
+  # Tilføjet "weights = data_interpolated$weight_vec":
+  linear_fit <- lm(
+    lactate ~ intensity,
+    data = data_interpolated,
+    weights = data_interpolated$weight_vec
+  )
 
   segmented_fit <- segmented::segmented(
     obj = linear_fit,
@@ -72,11 +77,10 @@ method_ltp <- function(data_prepared, fit, sport, plot) {
 
   switch (
     sport,
-    "cycling" = out <- out %>% dplyr::mutate(intensity = round(x = intensity, digits = 1)),
-    "running" = out <- out %>% dplyr::mutate(intensity = round(x = intensity, digits = 2)),
+    "cycling"  = out <- out %>% dplyr::mutate(intensity = round(x = intensity, digits = 1)),
+    "running"  = out <- out %>% dplyr::mutate(intensity = round(x = intensity, digits = 2)),
     "swimming" = out <- out %>% dplyr::mutate(intensity = round(x = intensity, digits = 3))
   )
 
   out
-
 }
